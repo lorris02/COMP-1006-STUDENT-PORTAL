@@ -1,6 +1,6 @@
 # Student Portal
 
-A PHP student-record management project by Jonathan Ilori, developed from Computer Programming coursework.
+Student Portal is a PHP application for managing student records. It lets users add, view, edit, and delete students, search by name or ID, and track grades through a simple dashboard.
 
 ## Features
 
