@@ -1,24 +1,24 @@
 <?php
-
-namespace database;
-
-use mysqli;
-
 class database
 {
-    private $host = "172.31.22.43";
-    private $username = "Jonathan200594905";
-    private $password = "yUVYrTzotQ";
-    private $database = "Jonathan200594905";
-    protected $conn;
+    protected ?PDO $conn = null;
     public function __construct() {
-        if (!$this->conn) {
-            $this->conn = new mysqli($this->host, $this->username, $this->password, $this->database);
-            if (!$this->conn) {
-                echo "<p>Connected failed: " . mysqli_connect_error() . "</p>";
-                exit;
-            }
+        // Demo records stay in the visitor's session.
+        if (getenv('APP_MODE') !== 'database') {
+            return;
         }
-        return $this->conn;
+        $password = getenv('DB_PASSWORD');
+        if ($password === false || $password === '') {
+            throw new RuntimeException('Database password is not configured.');
+        }
+        $host = getenv('DB_HOST') ?: '127.0.0.1';
+        $port = getenv('DB_PORT') ?: '3306';
+        $name = getenv('DB_NAME') ?: 'student_portal';
+        $user = getenv('DB_USER') ?: 'student_portal';
+        $this->conn = new PDO("mysql:host=$host;port=$port;dbname=$name;charset=utf8mb4", $user, $password, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
     }
 }
