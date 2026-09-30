@@ -1,55 +1,27 @@
 <?php
 class validate
 {
-    //check if the data is empty using for each loop
-    public function checkEmpty($data, $field)
-    {
-        $msg = null;
-        foreach ($field as $value) {
-            if (empty($data[$value])) {
-                $msg .= "<p> $value field empty</p>";
-            }
+    // Validate every field before saving a student.
+    public function student(array $data): array {
+        $errors = [];
+        $name = $data['name'] ?? '';
+        if ($name === '' || strlen($name) > 100 || preg_match('/[\x00-\x1F\x7F]/', $name)) {
+            $errors['name'] = 'Enter a name between 1 and 100 characters.';
         }
-        return $msg;
-    }
-
-    //this function checks if the grade is a valid grade(from 0 - 100 )
-    public function validGrade($grade)
-    {
-        if (is_numeric($grade) && $grade >= 0 && $grade <= 100) {
-            return true;
+        if (!preg_match('/^[0-9]{1,12}$/D', $data['student_id'] ?? '')) {
+            $errors['student_id'] = 'Use 1 to 12 digits for the student ID.';
         }
-    }
-
-    //this function checks if the age entered is a valid age and if age is greater than 0 and less than 50
-    public function validAge($age)
-    {
-        if (is_numeric($age) && $age >= 0 && $age <= 50) {
-            return true;
-        } else {
-            return false;
+        $age = $data['age'] ?? '';
+        if (!preg_match('/^[0-9]{1,3}$/D', $age) || (int) $age < 1 || (int) $age > 120) {
+            $errors['age'] = 'Enter a whole-number age between 1 and 120.';
         }
-    }
-
-    //this function checks if the gender is a valid gender,
-    public function validGender($gender)
-    {
-        if ($gender == "male") {
-            return "Male";
-        } elseif ($gender == "Female") {
-            return "Female";
-        } else {
-            return "Other";
+        if (!in_array($data['gender'] ?? '', ['male', 'female', 'other'], true)) {
+            $errors['gender'] = 'Choose a gender from the list.';
         }
-    }
-
-    public function validStid($stId)
-    {
-        //this function only allows numbers 0-9
-        if (preg_match('/^[0-9]+$/', $stId)) {
-            return true;
-        } else {
-            return false;
+        $grade = $data['grade'] ?? '';
+        if (!preg_match('/^[0-9]{1,3}(\.[0-9]{1,2})?$/D', $grade) || (float) $grade > 100) {
+            $errors['grade'] = 'Enter a grade from 0 to 100, with up to two decimal places.';
         }
+        return $errors;
     }
 }
