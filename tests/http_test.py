@@ -1,5 +1,6 @@
 """Exercise the public demo through actual HTTP requests."""
 import http.cookiejar
+import os
 import re
 import sys
 import urllib.error
@@ -10,9 +11,12 @@ base = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8080").rstrip("/
 checks = 0
 
 def client():
-    return urllib.request.build_opener(
-        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
-    )
+    handlers = [urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())]
+    if os.environ.get("PORTAL_TEST_MODE") == "database":
+        passwords = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        passwords.add_password(None, base, os.environ["ADMIN_USERNAME"], os.environ["ADMIN_PASSWORD"])
+        handlers.append(urllib.request.HTTPBasicAuthHandler(passwords))
+    return urllib.request.build_opener(*handlers)
 
 browser = client()
 
@@ -56,12 +60,18 @@ edited = {**data, "name": "Test Student", "grade": "92.5", "original_id": "00042
 check("Test Student" in request("/add.php", edited)[1], "edit works")
 check("Test Student" in request("/view.php?q=00042")[1], "ID search works")
 check("No matching students" in request("/view.php?q=missing")[1], "empty search state")
-check("00042" not in request("/view.php", connection=client())[1], "sessions isolated")
+if os.environ.get("PORTAL_TEST_MODE") == "database":
+    check("00042" in request("/view.php", connection=client())[1], "authenticated database records shared")
+else:
+    check("00042" not in request("/view.php", connection=client())[1], "sessions isolated")
 status, page, _ = request("/delete.php", {"csrf": csrf, "id": "00042"})
 check("Delete this student?" in page, "confirmation displayed")
 check("00042" in request("/view.php")[1], "confirmation does not delete yet")
 status, page, _ = request("/delete.php", {"csrf": csrf, "id": "00042", "confirm": "yes"})
 check("00042" not in page, "confirmed deletion works")
 request("/delete.php", {"csrf": csrf, "id": "100001", "confirm": "yes"})
-check("Alex Morgan" in request("/reset.php", {"csrf": csrf})[1], "reset restores samples")
+if os.environ.get("PORTAL_TEST_MODE") == "database":
+    check(request("/reset.php", {"csrf": csrf})[0] == 403, "database reset blocked")
+else:
+    check("Alex Morgan" in request("/reset.php", {"csrf": csrf})[1], "reset restores samples")
 print(f"{checks} HTTP checks passed.")
