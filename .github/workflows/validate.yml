@@ -1,0 +1,98 @@
+name: Validate Student Portal
+on:
+  push:
+    branches: [main, student-portal-improvements]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build application container
+        run: docker build -t portal-test .
+      - name: Check PHP syntax and validation
+        run: |
+          docker run --rm -v "$PWD:/app" -w /app --entrypoint sh portal-test -c 'find Php_files tests -name "*.php" -exec php -l {} \; && php tests/run.php'
+      - name: Start demo on Render-style port
+        run: |
+          docker run -d --name portal-demo -e PORT=10000 -p 127.0.0.1:8080:10000 portal-test
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/view.php >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Check demo HTTP behaviour
+        run: python3 tests/http_test.py http://127.0.0.1:8080
+      - name: Check secure cookies behind HTTPS termination
+        run: |
+          docker run -d --name portal-secure -e COOKIE_SECURE=1 -e PORT=10000 -p 127.0.0.1:8082:10000 portal-test
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent -D /tmp/portal-headers http://127.0.0.1:8082/view.php >/dev/null; then break; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import pathlib
+          headers = pathlib.Path('/tmp/portal-headers').read_text().lower()
+          assert 'set-cookie:' in headers and '; secure' in headers
+          assert 'x-powered-by:' not in headers
+          PY
+      - name: Install browser checks
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Check layouts and browser forms
+        run: node tests/visual.mjs
+      - name: Set temporary test credentials
+        run: |
+          credential=$(openssl rand -hex 24)
+          echo "::add-mask::$credential"
+          echo "DB_PASSWORD=$credential" >> "$GITHUB_ENV"
+          credential=$(openssl rand -hex 24)
+          echo "::add-mask::$credential"
+          echo "ADMIN_PASSWORD=$credential" >> "$GITHUB_ENV"
+      - name: Start temporary MySQL database
+        run: |
+          docker network create portal-ci
+          docker run -d --name portal-mysql --network portal-ci -e MYSQL_ROOT_PASSWORD="$DB_PASSWORD" -e MYSQL_ROOT_HOST=% mysql:8.4
+          ready=0
+          for attempt in $(seq 1 90); do
+            if docker exec -e MYSQL_PWD="$DB_PASSWORD" portal-mysql mysql -uroot -e 'SELECT 1' >/dev/null 2>&1; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          docker exec -e MYSQL_PWD="$DB_PASSWORD" portal-mysql mysql -uroot -e 'CREATE DATABASE student_portal'
+          docker exec -i -e MYSQL_PWD="$DB_PASSWORD" portal-mysql mysql -uroot student_portal < student.sql
+          docker exec -i -e MYSQL_PWD="$DB_PASSWORD" portal-mysql mysql -uroot student_portal <<'SQL'
+          INSERT INTO students VALUES
+          ('100001', 'Alex Morgan', 21, 'other', 88.5),
+          ('100002', 'Maya Chen', 24, 'female', 94),
+          ('100003', 'Jordan Taylor', 19, 'male', 72);
+          SQL
+      - name: Check MySQL mode
+        env:
+          ADMIN_USERNAME: ci-admin
+          PORTAL_TEST_MODE: database
+        run: |
+          docker run -d --name portal-database --network portal-ci -p 127.0.0.1:8081:80 \
+            -e APP_MODE=database -e DB_HOST=portal-mysql -e DB_NAME=student_portal -e DB_USER=root \
+            -e DB_PASSWORD="$DB_PASSWORD" -e ADMIN_USERNAME -e ADMIN_PASSWORD portal-test
+          for attempt in $(seq 1 30); do
+            code=$(curl --silent --max-time 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/view.php) || code=000
+            if [ "$code" = 401 ]; then break; fi
+            sleep 1
+          done
+          test "$code" = 401
+          python3 tests/http_test.py http://127.0.0.1:8081
+      - name: Save layout screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: student-portal-layouts
+          path: test-results/*.png
+          if-no-files-found: ignore
+      - name: Stop test containers
+        if: always()
+        run: docker rm -f portal-demo portal-secure portal-database portal-mysql || true

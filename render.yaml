@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: student-portal-demo
+    runtime: docker
+    plan: free
+    region: ohio
+    repo: https://github.com/lorris02/COMP-1006-STUDENT-PORTAL
+    branch: student-portal-improvements
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /view.php
+    autoDeployTrigger: off
+    envVars:
+      - key: APP_MODE
+        value: demo
+      - key: PORT
+        value: "10000"
+      - key: COOKIE_SECURE
+        value: "1"
